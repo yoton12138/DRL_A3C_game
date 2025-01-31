@@ -33,8 +33,11 @@ def display_thread(global_model, done_event):
                     
                     time.sleep(0.02)
                 
-                print(f"Display Episode Score: {episode_score}")
-                time.sleep(1)
+                print(f"Display Episode Score: {round(episode_score, 4)}")
+                time.sleep(0.5)
+
+                if done_event.is_set():
+                    break
                 
             except Exception as e:
                 print(f"显示线程错误: {e}")
@@ -55,7 +58,16 @@ def main():
     
     # 创建全局模型
     global_model = ActorCritic().share_memory()
-    optimizer = torch.optim.Adam(global_model.parameters(), lr=1e-3)
+    
+    # 创建优化器
+    optimizer = torch.optim.Adam(global_model.parameters(), lr=2e-4)
+    
+    # 添加余弦学习率调度器
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 
+        T_max=1000,  # 最大迭代次数
+        eta_min=1e-6,  # 最小学习率
+    )
     
     # 减少工作进程数量
     num_workers = max(mp.cpu_count() // 4, 1)
@@ -74,7 +86,7 @@ def main():
         
         # 启动训练进程
         for rank in range(num_workers):
-            worker = Worker(global_model, optimizer, rank, done_event)
+            worker = Worker(global_model, optimizer, rank, done_event, scheduler)
             worker.start()
             workers.append(worker)
             

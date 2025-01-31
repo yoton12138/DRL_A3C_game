@@ -58,12 +58,12 @@ class FlappyBirdEnv:
     
     def step(self, action):
         """执行一步动作"""
-        reward = 1  # 基础存活奖励
+        reward = 0.3  # 基础存活奖励
         
         # 处理动作，增加跳跃惩罚
         if action == 1:  # 跳跃
             self.bird_velocity = self.jump_velocity
-            reward -= 0.5  # 每次跳跃的惩罚
+            reward -= 5  # 每次跳跃的惩罚
         
         # 更新鸟的位置
         self.bird_velocity += self.gravity
@@ -83,25 +83,26 @@ class FlappyBirdEnv:
             
             # 新的对齐奖励机制
             if height_diff < self.pipe_gap * 0.2:  # 当小鸟在管道中心20%范围内
-                alignment_reward = 2.0  # 最大对齐奖励
+                alignment_reward = 5.0  # 最大对齐奖励
             elif height_diff < self.pipe_gap * 0.4:  # 当小鸟在管道中心40%范围内
-                alignment_reward = 1.0
+                alignment_reward = 2.0
             else:
-                alignment_reward = 0.5 * np.exp(-height_diff / 30.0)  # 指数衰减奖励
-            
+                #alignment_reward = 0.5 * np.exp(-height_diff / 30.0)  # 指数衰减奖励
+                alignment_reward = 0
+
             reward += alignment_reward
             
         
         # 边界惩罚
         if self.bird_y < self.height * 0.1 or self.bird_y > self.height * 0.9:
-            reward -= 1  # 增加接近边界的惩罚
+            reward -= 10  # 增加接近边界的惩罚
         
         # 检查碰撞
         if self._check_collision():
             if self.bird_y < 0 or self.bird_y > self.height:
-                reward = -5  # 显著增加碰到上下边界的惩罚
+                reward = -30  # 显著增加碰到上下边界的惩罚
             else:
-                reward = -5  # 显著增加碰到管道的惩罚
+                reward = -30  # 显著增加碰到管道的惩罚
             self.done = True
         
         # 检查得分
@@ -109,7 +110,7 @@ class FlappyBirdEnv:
             if not pipe['passed'] and pipe['x'] < self.bird_x:
                 pipe['passed'] = True
                 self.score += 1
-                reward = 10  # 增加通过奖励
+                reward = 50  # 增加通过奖励
         
         # 更新管道位置
         for pipe in self.pipes:
@@ -122,7 +123,7 @@ class FlappyBirdEnv:
         if len(self.pipes) == 0 or self.width - self.pipes[-1]['x'] >= self.pipe_distance:
             self._add_pipe()
         
-        return self._get_state(), reward, self.done
+        return self._get_state(), reward / 50, self.done
     
     def _add_pipe(self):
         """添加新的管道，固定通过区域的高度"""

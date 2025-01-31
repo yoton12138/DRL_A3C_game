@@ -5,13 +5,14 @@ import numpy as np
 from model.a3c import ActorCritic
 
 class Worker(mp.Process):
-    def __init__(self, global_model, optimizer, rank, done_event,
-                 max_episodes=10000, update_interval=32):
+    def __init__(self, global_model, optimizer, rank, done_event, scheduler=None,
+                 max_episodes=2000, update_interval=128):
         super(Worker, self).__init__()
         self.rank = rank
         self.done_event = done_event
         self.max_episodes = max_episodes
         self.update_interval = update_interval
+        self.scheduler = scheduler
         
         # 创建本地模型
         self.local_model = ActorCritic().to('cpu')
@@ -38,7 +39,7 @@ class Worker(mp.Process):
                 state = env.reset()
                 done = False
                 score = 0
-                
+            
                 # 收集经验
                 while not done:
                     action, policy = self.local_model.get_action(state, 'cpu')
@@ -61,8 +62,9 @@ class Worker(mp.Process):
                         self.policies.clear()
                 
                 episode += 1
-                if episode % 10 == 0:
+                if episode % 100 == 0:
                     print(f"Worker {self.rank}, Episode {episode}, Score: {score}")
+                
         finally:
             env.close()
     
@@ -91,13 +93,14 @@ class Worker(mp.Process):
         actor_loss = -torch.min(surr1, surr2).mean()
         
         # 修正维度匹配
-        critic_loss = F.smooth_l1_loss(values, returns)
+        # critic_loss = F.smooth_l1_loss(values, returns)
+        critic_loss = F.huber_loss(values, returns, delta=1.0)
         entropy_loss = -(policies_now * torch.log(policies_now + 1e-10)).sum(dim=1).mean()
         
         # 调整损失权重，增加critic loss的权重
-        total_loss = actor_loss + 0.8 * critic_loss + 0.01 * entropy_loss
+        total_loss = actor_loss + 0.6 * critic_loss + 0.01 * entropy_loss
         if episode % 100 == 0:
-            print(f"Worker {self.rank}, Episode {episode}, Actor Loss: {actor_loss.item()}, Critic Loss: {critic_loss.item()}, Entropy Loss: {entropy_loss.item()}")
+            print(f"Worker {self.rank}, Episode {episode}, Actor Loss: {round(actor_loss.item(), 4)}, Critic Loss: {round(critic_loss.item(), 4)}, Entropy Loss: {round(entropy_loss.item(), 4)}")
         # 更新全局模型
         self.optimizer.zero_grad()
         total_loss.backward()
@@ -109,6 +112,9 @@ class Worker(mp.Process):
                                            self.local_model.parameters()):
             global_param._grad = local_param.grad
         self.optimizer.step()
+        # 更新学习率
+        if self.scheduler is not None:
+            self.scheduler.step()
         
         # 同步本地模型
         self.local_model.load_state_dict(self.global_model.state_dict())

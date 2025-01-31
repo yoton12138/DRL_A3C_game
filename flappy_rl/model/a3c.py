@@ -4,23 +4,30 @@ import torch.nn.functional as F
 import numpy as np
 
 class ActorCritic(nn.Module):
-    def __init__(self, input_dim=4, hidden_dims=[64, 64, 64]):
+    def __init__(self, input_dim=4, hidden_dims=[128, 128, 128]):
         super(ActorCritic, self).__init__()
         
         # 增加网络容量和深度
         self.shared_layers = nn.Sequential(
             nn.Linear(input_dim, hidden_dims[0]),
+            nn.LayerNorm(hidden_dims[0]),
             nn.SiLU(),
             nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.LayerNorm(hidden_dims[1]),
             nn.SiLU(),
             nn.Linear(hidden_dims[1], hidden_dims[2]),
+            nn.LayerNorm(hidden_dims[2]),
             nn.SiLU(),
-            nn.Dropout(0.1)
+            # nn.Dropout(0.1)
         )
         
         # Actor网络 - 使用更小的初始化
         self.actor_layers = nn.Sequential(
             nn.Linear(hidden_dims[2], hidden_dims[2] // 2),
+            nn.LayerNorm(hidden_dims[2] // 2),
+            nn.SiLU(),
+            nn.Linear(hidden_dims[2] // 2, hidden_dims[2] // 2),
+            nn.LayerNorm(hidden_dims[2] // 2),
             nn.SiLU(),
             nn.Linear(hidden_dims[2] // 2, 2),
             nn.Softmax(dim=-1)
@@ -29,6 +36,10 @@ class ActorCritic(nn.Module):
         # Critic网络
         self.critic_layers = nn.Sequential(
             nn.Linear(hidden_dims[2], hidden_dims[2] // 2),
+            nn.LayerNorm(hidden_dims[2] // 2),
+            nn.SiLU(),
+            nn.Linear(hidden_dims[2] // 2, hidden_dims[2] // 2),
+            nn.LayerNorm(hidden_dims[2] // 2),
             nn.SiLU(),
             nn.Linear(hidden_dims[2] // 2, 1)
         )
@@ -54,10 +65,16 @@ class ActorCritic(nn.Module):
     def get_action(self, state, device):
         state = torch.FloatTensor(state).to(device)
         with torch.no_grad():
-            policy, _ = self(state)
-            # 添加探索噪声，并确保概率值有效
-            policy = policy + torch.randn_like(policy) * 0.05
-            policy = torch.clamp(policy, min=1e-8)  # 确保没有负数
-            policy = policy / policy.sum(dim=-1, keepdim=True)  # 重新归一化
-            action = torch.multinomial(policy, 1).item()
+            policy, _ = self(state) # 本来就是softmax不需要再softmax
+            # 添加探索噪声
+            noise = torch.randn_like(policy) * 0.01  # 减小噪声幅度
+            policy = policy + noise
+            policy = torch.clamp(policy, min=1e-8, max=1.0)  # 再次限制范围
+            policy = policy / policy.sum(dim=-1, keepdim=True)  # 再次归一化
+            
+            # 最终检查
+            if torch.isnan(policy).any() or torch.isinf(policy).any():
+                policy = torch.ones_like(policy) / policy.shape[-1]
+            
+            action = torch.multinomial(policy, 1).item() # 实测随机选择比argmax效果好   
         return action, policy[0][action].item()
